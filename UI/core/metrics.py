@@ -29,6 +29,8 @@ class Metrics:
         self.jobs_done    = 0
         self.jobs_failed  = 0
         self._latencies   = []   # ms, capped at _LATENCY_WINDOW
+        self._tls_times   = []   # TLS handshake durations in ms, capped at _LATENCY_WINDOW
+        self._size_lat    = []   # (file_size_bytes, latency_ms) pairs, capped at _LATENCY_WINDOW
         self.bytes_sent   = 0
         self.bytes_recv   = 0
 
@@ -36,13 +38,25 @@ class Metrics:
     # Record events
     # ------------------------------------------------------------------
 
-    def record_job_done(self, latency_ms: float, bytes_sent: int = 0):
+    def record_job_done(self, latency_ms: float, bytes_sent: int = 0,
+                        file_size_bytes: int = 0):
         with self._lock:
             self.jobs_done += 1
             self._latencies.append(latency_ms)
             if len(self._latencies) > _LATENCY_WINDOW:
                 self._latencies.pop(0)
+            if file_size_bytes > 0:
+                self._size_lat.append((file_size_bytes, latency_ms))
+                if len(self._size_lat) > _LATENCY_WINDOW:
+                    self._size_lat.pop(0)
             self.bytes_sent += bytes_sent
+
+    def record_tls_handshake(self, duration_ms: float):
+        """Record the duration of a TLS handshake for overhead analysis."""
+        with self._lock:
+            self._tls_times.append(duration_ms)
+            if len(self._tls_times) > _LATENCY_WINDOW:
+                self._tls_times.pop(0)
 
     def record_job_failed(self):
         with self._lock:
@@ -78,26 +92,41 @@ class Metrics:
         """Return all metrics as a JSON-serialisable dict for the UI."""
         with self._lock:
             latencies_copy = list(self._latencies)
+            tls_copy       = list(self._tls_times)
+            size_lat_copy  = list(self._size_lat)
             jobs_done      = self.jobs_done
             jobs_failed    = self.jobs_failed
             bytes_sent     = self.bytes_sent
             bytes_recv     = self.bytes_recv
 
         avg_lat = (sum(latencies_copy) / len(latencies_copy)) if latencies_copy else 0.0
+        min_lat = min(latencies_copy) if latencies_copy else 0.0
+        max_lat = max(latencies_copy) if latencies_copy else 0.0
+        avg_tls = (sum(tls_copy) / len(tls_copy)) if tls_copy else None
 
         return {
-            'jobs_done'        : jobs_done,
-            'jobs_failed'      : jobs_failed,
-            'avg_latency_ms'   : round(avg_lat, 1),
-            'throughput_per_min': self.throughput_per_min(),
-            'bytes_sent'       : bytes_sent,
-            'bytes_recv'       : bytes_recv,
-            'bytes_sent_mb'    : round(bytes_sent / 1_048_576, 2),
-            'bytes_recv_mb'    : round(bytes_recv / 1_048_576, 2),
-            'cpu_percent'      : self.cpu_percent(),
-            'uptime_seconds'   : self.uptime_seconds(),
+            'jobs_done'          : jobs_done,
+            'jobs_failed'        : jobs_failed,
+            'avg_latency_ms'     : round(avg_lat, 1),
+            'min_latency_ms'     : round(min_lat, 1),
+            'max_latency_ms'     : round(max_lat, 1),
+            'throughput_per_min' : self.throughput_per_min(),
+            'bytes_sent'         : bytes_sent,
+            'bytes_recv'         : bytes_recv,
+            'bytes_sent_mb'      : round(bytes_sent / 1_048_576, 2),
+            'bytes_recv_mb'      : round(bytes_recv / 1_048_576, 2),
+            'cpu_percent'        : self.cpu_percent(),
+            'uptime_seconds'     : self.uptime_seconds(),
             # last 20 latency samples for the sparkline chart
-            'latency_history'  : [round(x, 1) for x in latencies_copy[-20:]],
+            'latency_history'    : [round(x, 1) for x in latencies_copy[-20:]],
+            # TLS overhead: avg handshake time in ms (None if TLS never used)
+            'tls_handshake_avg_ms': round(avg_tls, 1) if avg_tls is not None else None,
+            'tls_handshake_count' : len(tls_copy),
+            # file-size vs latency scatter data (last 20 jobs)
+            'size_latency_samples': [
+                {'size_kb': round(s / 1024, 1), 'latency_ms': round(l, 1)}
+                for s, l in size_lat_copy[-20:]
+            ],
         }
 
 

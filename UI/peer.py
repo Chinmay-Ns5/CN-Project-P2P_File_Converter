@@ -224,9 +224,12 @@ def _run_job(job_id: str, input_path: Path):
             _log(f"Converting {filename} → {output_format.upper()} locally")
             result = convert(str(input_path), output_format, str(RESULTS))
 
-        latency_ms = (time.time() - started_at) * 1000
-        METRICS.record_job_done(latency_ms, result.stat().st_size)
-        _log(f"Done: {filename} → {output_format.upper()} in {latency_ms/1000:.2f}s")
+        latency_ms      = (time.time() - started_at) * 1000
+        input_size_bytes = input_path.stat().st_size if input_path.exists() else 0
+        METRICS.record_job_done(latency_ms, result.stat().st_size,
+                                file_size_bytes=input_size_bytes)
+        _log(f"Done: {filename} → {output_format.upper()} in {latency_ms/1000:.2f}s  "
+             f"({input_size_bytes/1024:.0f} KB input)")
 
         with JOBS_LOCK:
             JOBS[job_id].update({
@@ -292,7 +295,7 @@ def index():
 @app.route('/api/prefer-peers', methods=['POST'])
 def api_prefer_peers():
     global PREFER_PEERS
-    PREFER_PEERS = request.json.get('enabled', False)
+    PREFER_PEERS = (request.json or {}).get('enabled', False)
     log.info(f"Prefer-peers mode: {'ON' if PREFER_PEERS else 'OFF'}")
     return jsonify({'prefer_peers': PREFER_PEERS})
 
@@ -300,7 +303,7 @@ def api_prefer_peers():
 @app.route('/api/toggle-tls', methods=['POST'])
 def api_toggle_tls():
     global USE_TLS, SERVER
-    enabled = request.json.get('enabled', not USE_TLS)
+    enabled = (request.json or {}).get('enabled', not USE_TLS)
 
     if enabled and not _ensure_certs():
         return jsonify({'error': 'Could not generate TLS certs (is cryptography installed?)'}), 400
@@ -332,7 +335,7 @@ def api_toggle_tls():
 def api_toggle_gpu():
     if not GPU_ENCODERS:
         return jsonify({'error': 'No GPU encoders detected (NVENC/AMF/QSV not available)'}), 400
-    enabled = request.json.get('enabled', False)
+    enabled = (request.json or {}).get('enabled', False)
     set_gpu_accel(enabled)
     enc = GPU_ENCODERS[0] if enabled else 'cpu'
     _log(f"GPU accel {'enabled' if enabled else 'disabled'} ({enc})")
@@ -384,7 +387,7 @@ def api_convert():
         job_id = str(uuid.uuid4())[:8]
         paths  = []
         for f in files:
-            p = TEMP_DIR / f"{job_id}_{f.filename}"
+            p = TEMP_DIR / f"{job_id}_{Path(f.filename).name}"
             f.save(str(p))
             paths.append(p)
         with JOBS_LOCK:
@@ -400,10 +403,16 @@ def api_convert():
 
     # --- Single file conversion ---
     f         = files[0]
-    input_fmt = detect_format(f.filename)
-    job_id    = _new_job(f.filename, input_fmt, output_format)
-    save_path = TEMP_DIR / f"{job_id}_{f.filename}"
+    safe_name = Path(f.filename).name   # strip any path components (path traversal guard)
+    input_fmt = detect_format(safe_name)
+    if not input_fmt:
+        return jsonify({'error': f'Unrecognised file type: {safe_name}'}), 400
+    job_id    = _new_job(safe_name, input_fmt, output_format)
+    save_path = TEMP_DIR / f"{job_id}_{safe_name}"
     f.save(str(save_path))
+    if save_path.stat().st_size == 0:
+        save_path.unlink(missing_ok=True)
+        return jsonify({'error': 'Uploaded file is empty'}), 400
     threading.Thread(target=_run_job, args=(job_id, save_path), daemon=True).start()
     return jsonify({'job_id': job_id})
 

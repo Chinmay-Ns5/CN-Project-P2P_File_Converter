@@ -110,10 +110,21 @@ class PeerServer:
 
             # Wrap with TLS if enabled
             if self.ssl_context:
+                conn.settimeout(10)   # don't hang forever if client never sends ClientHello
+                _tls_t0 = time.perf_counter()
                 try:
                     conn = self.ssl_context.wrap_socket(conn, server_side=True)
+                    conn.settimeout(None)   # back to blocking after handshake
+                    _tls_ms = (time.perf_counter() - _tls_t0) * 1000
+                    log.debug(f"[server] TLS handshake with {addr} in {_tls_ms:.1f} ms")
+                    if self.metrics:
+                        self.metrics.record_tls_handshake(_tls_ms)
                 except ssl.SSLError as e:
                     log.warning(f"[server] TLS handshake failed from {addr}: {e}")
+                    conn.close()
+                    continue
+                except OSError as e:
+                    log.warning(f"[server] TLS handshake timed out / connection reset from {addr}: {e}")
                     conn.close()
                     continue
 
@@ -267,7 +278,8 @@ class PeerServer:
             bytes_sent = send_file(conn, str(output_path))
 
             if self.metrics:
-                self.metrics.record_job_done(latency_ms, bytes_sent)
+                self.metrics.record_job_done(latency_ms, bytes_sent,
+                                             file_size_bytes=bytes_recv)
 
             log.info(f"[server] job {job_id} done in {latency_ms:.0f} ms  "
                      f"({bytes_recv:,} → {output_size:,} bytes)")
