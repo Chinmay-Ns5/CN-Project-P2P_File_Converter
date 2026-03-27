@@ -449,7 +449,7 @@ Performance metrics are tracked in real-time and exposed at `/api/status`. The *
 
 ### Deliverable 1
 
-#### Component 1 — Problem Definition & Architecture (6 marks)
+#### Component 1 — Problem Definition & Architecture 
 
 **Problem:** Distributed file conversion over a LAN — offload CPU-heavy jobs to idle peers.
 
@@ -463,7 +463,7 @@ Performance metrics are tracked in real-time and exposed at `/api/status`. The *
 
 ---
 
-#### Component 2 — Core Implementation (8 marks)
+#### Component 2 — Core Implementation 
 
 Explicit low-level socket usage throughout — no framework abstracts socket behaviour.
 
@@ -484,7 +484,7 @@ Explicit low-level socket usage throughout — no framework abstracts socket beh
 
 ---
 
-#### Component 3 — Feature Implementation, Deliverable 1 (8 marks)
+#### Component 3 — Feature Implementation, Deliverable 1 
 
 - ✅ Core P2P conversion working (discover → offload → receive result)
 - ✅ Multiple concurrent clients (thread-per-connection, admission control)
@@ -497,7 +497,7 @@ Explicit low-level socket usage throughout — no framework abstracts socket beh
 
 ### Deliverable 2
 
-#### Component 4 — Performance Evaluation (7 marks)
+#### Component 4 — Performance Evaluation 
 
 All metrics measured and exposed live at `/api/status` (JSON) and in the Network Stats tab of the web UI.
 
@@ -520,7 +520,7 @@ All metrics measured and exposed live at `/api/status` (JSON) and in the Network
 
 ---
 
-#### Component 5 — Optimization & Fixes (5 marks)
+#### Component 5 — Optimization & Fixes 
 
 | Fix | File | Description |
 |---|---|---|
@@ -535,7 +535,7 @@ All metrics measured and exposed live at `/api/status` (JSON) and in the Network
 
 ---
 
-#### Component 6 — Final Demo & GitHub (6 marks)
+#### Component 6 — Final Demo & GitHub
 
 **Demo steps:**
 1. Start 3 peers on different machines: `python peer.py --name Alice/Bob/Charlie`
